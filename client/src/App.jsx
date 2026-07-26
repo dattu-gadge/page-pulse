@@ -20,8 +20,14 @@ function App() {
       body: JSON.stringify({ url }),
     });
 
-    const data = await response.json();
-    setReport(data);
+    if (!response.ok) {
+      const error = await response.json();
+      alert(error.error);
+      return;
+    }else {
+      const data = await response.json();
+      setReport(data);
+    }
   } catch (error) {
     console.error(error);
     alert("Unable to connect to server");
