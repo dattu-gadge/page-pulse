@@ -12,7 +12,7 @@ function App() {
   }
 
   try {
-    const response = await fetch("http://localhost:5000/analyze", {
+    const response = await fetch("https://page-pulse-lo70.onrender.com/api/analyze", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
