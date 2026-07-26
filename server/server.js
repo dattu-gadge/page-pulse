@@ -8,7 +8,9 @@ const app = express();
 
 app.use(cors());
 app.use(express.json());
-
+app.get("/", (req, res) => {
+  res.send("Page Pulse API is running!");
+});
 app.post("/api/analyze", async (req, res) => {
   const { url } = req.body;
 
