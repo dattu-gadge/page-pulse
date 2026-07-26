@@ -2,6 +2,16 @@
 
 Page Pulse is a web application that audits any website URL and returns basic SEO information.
 
+##Live Demo
+Frontend:
+https://page-pulse-orcin.vercel.app
+
+Backend:
+https://page-pulse-1o70.onrender.com
+
+##Github Repository
+https://github.com/dattu-gadge/page-pulse
+
 ## Features
 
 - HTTP Status
@@ -46,7 +56,7 @@ npm test
 
 ## API
 
-### POST /analyze
+### POST /api /analyze
 
 Request:
 
