@@ -1,70 +1,56 @@
 import { useState } from "react";
-import "./App.css";
+
+import Sidebar from "./components/Sidebar";
+import Navbar from "./components/Navbar";
+import Hero from "./components/Hero";
+import SearchBar from "./components/SearchBar";
+import WebsiteCard from "./components/WebsiteCard";
+import ScoreCard from "./components/ScoreCard";
+import PerformanceCards from "./components/PerformanceCards";
+import SEOAnalysis from "./components/SEOAnalysis";
 
 function App() {
-  const [url, setUrl] = useState("");
-  const [report, setReport] = useState(null);
-
-  const handleAnalyze = async () => {
-  if (!url) {
-    alert("Please enter a URL");
-    return;
-  }
-
-  try {
-    const response = await fetch("https://page-pulse-lo70.onrender.com/api/analyze", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ url }),
-    });
-
-    if (!response.ok) {
-      const error = await response.json();
-      alert(error.error);
-      return;
-    }else {
-      const data = await response.json();
-      setReport(data);
-    }
-  } catch (error) {
-    console.error(error);
-    alert("Unable to connect to server");
-  }
-};
+  const [result, setResult] = useState(null);
 
   return (
-    <div className="container">
-      <h1>🌐 Page Pulse</h1>
-      <p>Website SEO & Performance Analyzer</p>
+    <div
+      style={{
+        display: "flex",
+        background: "#050816",
+        minHeight: "100vh",
+      }}
+    >
+      <Sidebar />
 
-      <input
-        type="text"
-        placeholder="https://example.com"
-        value={url}
-        onChange={(e) => setUrl(e.target.value)}
-      />
+      <main
+        style={{
+          marginLeft: "260px",
+          width: "100%",
+          padding: "30px",
+        }}
+      >
+        <Navbar />
 
-      <button onClick={handleAnalyze}>
-        Analyze Website
-      </button>
+        <Hero />
 
-      <div className="report">
-        <h2>Report</h2>
+        <SearchBar onResult={setResult} />
 
-        <p><strong>HTTP Status:</strong> {report?.status ?? "--"}</p>
-        <p><strong>Response Time:</strong> {report?.responseTime ?? "--"}</p>
-        <p><strong>Page Title:</strong> {report?.pageTitle ?? "--"}</p>
-        <p><strong>Meta Description:</strong> {report?.metaDescription || "Not Found"}</p>
-        <p><strong>H1 Count:</strong> {report?.h1Count ?? "--"}</p>
-        <p><strong>Images Missing Alt:</strong> {report?.imagesMissingAlt ?? "--"}</p>
-        <p><strong>Word Count:</strong> {report?.wordCount ?? "--"}</p>
-      </div>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "2fr 1fr",
+            gap: "25px",
+            marginTop: "30px",
+          }}
+        >
+          <WebsiteCard data={result} />
+          <ScoreCard data={result} />
+        </div>
 
-      <footer>
-        Built for Digital Heroes Training Task
-      </footer>
+        <PerformanceCards data={result} />
+
+        <SEOAnalysis data={result} />
+      </main>
     </div>
   );
 }

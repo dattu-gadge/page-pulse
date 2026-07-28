@@ -1,0 +1,125 @@
+.sidebar {
+  width: 260px;
+  height: 100vh;
+  background: #0f172a;
+  position: fixed;
+  left: 0;
+  top: 0;
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 25px;
+  border-right: 1px solid rgba(255,255,255,.08);
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 40px;
+}
+
+.logo-icon {
+  font-size: 40px;
+  color: #3b82f6;
+}
+
+.logo h2 {
+  font-size: 24px;
+  margin: 0;
+}
+
+.logo p {
+  color: #94a3b8;
+  font-size: 13px;
+  margin-top: 3px;
+}
+
+.sidebar ul {
+  list-style: none;
+  padding: 0;
+}
+
+.sidebar li {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  padding: 15px;
+  border-radius: 12px;
+  margin-bottom: 12px;
+  cursor: pointer;
+  transition: .3s;
+  color: #cbd5e1;
+}
+
+.sidebar li:hover {
+  background: rgba(59,130,246,.15);
+  color: white;
+}
+
+.sidebar li.active {
+  background: linear-gradient(90deg,#2563eb,#7c3aed);
+  color: white;
+}
+
+.sidebar li svg {
+  font-size: 18px;
+}
+
+.upgrade-card {
+  background: linear-gradient(135deg,#2563eb,#7c3aed);
+  padding: 20px;
+  border-radius: 18px;
+  text-align: center;
+}
+
+.upgrade-card h3 {
+  margin-bottom: 10px;
+}
+
+.upgrade-card p {
+  font-size: 14px;
+  margin-bottom: 18px;
+  color: #e2e8f0;
+}
+
+.upgrade-card button {
+  width: 100%;
+  border: none;
+  background: white;
+  color: #2563eb;
+  padding: 12px;
+  border-radius: 10px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: .3s;
+}
+
+.upgrade-card button:hover {
+  transform: translateY(-2px);
+}
+
+@media (max-width:768px){
+
+.sidebar{
+width:80px;
+padding:20px 10px;
+}
+
+.logo h2,
+.logo p,
+.sidebar span,
+.upgrade-card{
+display:none;
+}
+
+.logo{
+justify-content:center;
+}
+
+.sidebar li{
+justify-content:center;
+}
+
+}

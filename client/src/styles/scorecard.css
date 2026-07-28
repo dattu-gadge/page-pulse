@@ -1,0 +1,27 @@
+.score-card{
+    background:#111827;
+    padding:30px;
+    border-radius:20px;
+    margin-top:30px;
+    border:1px solid rgba(255,255,255,.08);
+    text-align:center;
+}
+
+.progress-wrapper{
+    width:180px;
+    margin:30px auto;
+}
+
+.score-card h2{
+    color:white;
+}
+
+.score-card h3{
+    color:#22C55E;
+    margin-top:20px;
+}
+
+.score-card p{
+    color:#94A3B8;
+    margin-top:10px;
+}
