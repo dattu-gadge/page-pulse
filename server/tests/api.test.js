@@ -11,6 +11,20 @@ describe('API', () => {
   const repository = memoryRepository();
   const app = createApp({ repository, targetValidator: async (url) => { if (!/^https?:\/\//i.test(url)) throw new Error('Only HTTP and HTTPS websites can be analyzed.'); return {}; }, analyzer: async (url) => ({ submittedUrl: url, scannedAt: new Date().toISOString(), score: { value: 80 }, status: 'completed', metrics: {}, issues: [] }) });
 
+  test('trusts exactly one configured reverse-proxy hop and keeps API rate limiting enabled', async () => {
+    const previousTrustProxy = process.env.TRUST_PROXY;
+    process.env.TRUST_PROXY = 'true';
+    try {
+      const proxyApp = createApp({ repository });
+      expect(proxyApp.get('trust proxy')).toBe(1);
+      for (let index = 0; index < 30; index += 1) await request(proxyApp).get('/api/health').expect(200);
+      await request(proxyApp).get('/api/health').expect(429);
+    } finally {
+      if (previousTrustProxy === undefined) delete process.env.TRUST_PROXY;
+      else process.env.TRUST_PROXY = previousTrustProxy;
+    }
+  });
+
   test('health does not expose credentials', async () => {
     const res = await request(app).get('/api/health').expect(200);
     expect(res.body.status).toBe('ok');

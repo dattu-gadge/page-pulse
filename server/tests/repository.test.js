@@ -38,11 +38,39 @@ describe('local scan repository', () => {
   });
 
   test('requires explicit PostgreSQL TLS mode and rejects connection-string TLS overrides', () => {
+    expect(() => postgresConnectionOptions('', 'true')).toThrow('DATABASE_URL is required');
     expect(() => postgresConnectionOptions('postgresql://user:pass@localhost/db', undefined)).toThrow('DATABASE_SSL must be explicitly set');
     expect(postgresConnectionOptions('postgresql://user:pass@localhost/db', 'false').ssl).toBeUndefined();
     expect(postgresConnectionOptions('postgresql://user:pass@localhost/db', 'true').ssl).toEqual({ rejectUnauthorized: true });
     expect(() => postgresConnectionOptions('postgresql://user:pass@localhost/db?sslmode=require', 'true')).toThrow('Remove TLS query parameters');
+    expect(() => postgresConnectionOptions('postgresql://user:pass@localhost/db?SSLROOTCERT=%2Ftmp%2Froot.crt', 'true')).toThrow('Remove TLS query parameters');
     expect(() => postgresConnectionOptions('https://example.com', 'false')).toThrow('PostgreSQL scheme');
+  });
+
+  test('requires verified TLS for PostgreSQL in production', () => {
+    const previousNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+    try {
+      expect(() => postgresConnectionOptions('postgresql://user:pass@localhost/db', 'false')).toThrow('DATABASE_SSL=true is required in production');
+      expect(postgresConnectionOptions('postgresql://user:pass@localhost/db', 'true').ssl).toEqual({ rejectUnauthorized: true });
+    } finally {
+      if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = previousNodeEnv;
+    }
+  });
+
+  test('does not silently use SQLite for production when DATABASE_URL is missing', async () => {
+    const previousNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+    const productionRepository = new ScanRepository({ databaseUrl: '', filePath: path.join(directory, 'must-not-be-created.sqlite') });
+    try {
+      await expect(productionRepository.init()).rejects.toThrow('DATABASE_URL is required when NODE_ENV=production');
+      expect(productionRepository.mode).toBe('sqlite');
+      expect(await fs.stat(productionRepository.filePath).catch(() => null)).toBeNull();
+    } finally {
+      if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = previousNodeEnv;
+    }
   });
 
   test('requires the explicit migrated PostgreSQL schema without issuing DDL', async () => {

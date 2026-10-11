@@ -2,6 +2,7 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const { Pool } = require('pg');
 const { postgresConnectionOptions } = require('../src/repositories/scanRepository');
+const { formatStartupFailure } = require('../src/startupDiagnostics');
 
 async function migrate() {
   if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL is required to run PostgreSQL migrations.');
@@ -25,6 +26,6 @@ async function migrate() {
   }
 }
 
-if (require.main === module) migrate().catch((error) => { console.error(`Migration failed (${error.code || 'MIGRATION_FAILED'}). Check database configuration; connection details were withheld.`); process.exitCode = 1; });
+if (require.main === module) migrate().catch((error) => { console.error(formatStartupFailure(error, 'Migration')); process.exitCode = 1; });
 
 module.exports = { migrate };

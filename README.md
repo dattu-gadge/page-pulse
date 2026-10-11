@@ -83,8 +83,8 @@ The workspace runs in local development mode without an account. Reports are sto
 | `CORS_ORIGINS` | Comma-separated exact frontend origins. Defaults to the two local Vite origins. |
 | `TRUST_PROXY` | Set `true` only behind a trusted reverse proxy so IP-based rate limits use the forwarded client IP. |
 | `COOKIE_SAME_SITE` | Use `Lax` for same-site custom subdomains or `None` for cross-site Vercel/Render hostnames. Production cookies are Secure. |
-| `DATABASE_URL` | Optional PostgreSQL connection string. Omit to use SQLite. |
-| `DATABASE_SSL` | Required with PostgreSQL: `false` for local or Render private/internal URLs; `true` for TLS with certificate verification. |
+| `DATABASE_URL` | PostgreSQL connection string. Omit only for local development and tests; production requires PostgreSQL and will not fall back to SQLite. |
+| `DATABASE_SSL` | Required with PostgreSQL. Production requires `true` for TLS with certificate verification; `false` is available only for local development or private/internal connections. |
 | `SCAN_STORE_PATH` | Optional path to the local SQLite database. Defaults to `server/data/scans.sqlite`. |
 | `SQLITE_IMPORT_SOURCE` | Explicit source file path used only by the manual SQLite import command. |
 | `SHUTDOWN_TIMEOUT_MS` | Maximum HTTP drain duration before active connections are closed; defaults to 10,000 ms. |
@@ -93,7 +93,7 @@ Keep real `.env` files and database credentials out of Git and logs. The `.env.e
 
 ## Persistence
 
-Without `DATABASE_URL`, the backend writes reports to `server/data/scans.sqlite`. SQLite persists reports across local restarts. Back up this file if you need to retain local reports. Clear history in Settings to delete all local reports.
+Without `DATABASE_URL`, local development and tests write reports to `server/data/scans.sqlite`. Production startup requires `DATABASE_URL` and will fail clearly instead of opening an ephemeral SQLite database. SQLite persists reports across local restarts. Back up this file if you need to retain local reports. Clear history in Settings to delete all local reports.
 
 To use PostgreSQL, set `DATABASE_URL` and `DATABASE_SSL`, then run:
 
@@ -172,9 +172,16 @@ The frontend can be hosted independently. Provision an operator account before e
 
 ### Render backend
 
-`render.yaml` defines the API and a paid, durable PostgreSQL resource. The API receives the database's private `connectionString`; both resources must remain in the same Render region. For Render's private/internal connection, the Blueprint sets `DATABASE_SSL=false`: this uses Render's private network without enabling TLS. If an external database URL is used instead, configure `DATABASE_SSL=true`; node-postgres validates the server certificate against Node's trusted CAs. Remove `sslmode`, `sslcert`, `sslkey`, and `sslrootcert` query parameters from `DATABASE_URL`, because node-postgres otherwise replaces the explicit TLS validation configuration. Never set the database URL in a frontend variable. Run `npm run migrate` explicitly against the intended destination before provisioning accounts; it is not part of startup or deployment. The Blueprint health check uses `/api/ready`, and Render is configured to allow up to 30 seconds for graceful shutdown. Hosted analysis and report operations continue to require a provisioned account session.
+The current production API is `https://page-pulse-lo70.onrender.com` and the Vercel site is `https://page-pulse-orcin.vercel.app`. Set Vercel's `VITE_API_BASE_URL` to the API origin and Render's `CORS_ORIGINS` to the exact Vercel origin. Configure the Render backend with the Neon PostgreSQL `DATABASE_URL`, `DATABASE_SSL=true`, `NODE_ENV=production`, `TRUST_PROXY=true`, and `COOKIE_SAME_SITE=None` for these cross-site default hostnames. `TRUST_PROXY=true` trusts one reverse proxy hop, matching Render's forwarding behavior; do not use `true` in Express as an unrestricted trust setting. The `pg` driver connects directly to Neon and also supports Neon `-pooler` hostnames; the application does not use named prepared statements. Remove `sslmode`, `sslcert`, `sslkey`, and `sslrootcert` query parameters from `DATABASE_URL`, because TLS is configured explicitly and certificate verification stays enabled. Never set the database URL in a frontend variable. Do not provision a second database from the Render Blueprint. Run migrations manually only after a verified connection; they are not part of startup or deployment. Hosted analysis and report operations continue to require a provisioned account session.
 
-When first syncing the Blueprint, verify that the existing API service is already in Oregon. Render does not allow an existing service's region to be changed in place. If it is elsewhere, set the new database to that same region before creating it so that the private `connectionString` is reachable; do not attempt to move the existing service as part of this phase.
+To verify the Neon connection and TLS before changing schema, run this in PowerShell from `server` after setting `DATABASE_URL` and `DATABASE_SSL=true` in the ignored `.env` file. This command performs only `SELECT 1`; it does not inspect or change application tables:
+
+```powershell
+cd server
+node --env-file-if-exists=.env -e "const { Pool } = require('pg'); const { postgresConnectionOptions } = require('./src/repositories/scanRepository'); const { formatStartupFailure } = require('./src/startupDiagnostics'); let pool; (async () => { pool = new Pool({ ...postgresConnectionOptions(process.env.DATABASE_URL), max: 1 }); await pool.query('SELECT 1'); console.log('PostgreSQL connection and verified TLS succeeded.'); })().catch((error) => { console.error(formatStartupFailure(error, 'Connection verification')); process.exitCode = 1; }).finally(async () => { if (pool) await pool.end(); });"
+```
+
+After the connection succeeds, run `npm run migrate` explicitly from `server` to apply the idempotent additive migrations. Then deploy the code, provision an operator account with `npm run create-user` in an interactive Render shell, and verify `https://page-pulse-lo70.onrender.com/api/health` reports `storage: postgres` and `https://page-pulse-lo70.onrender.com/api/ready` reports `status: ready`. The readiness route requires the migrated schema. Do not run the SQLite importer.
 
 ## Troubleshooting
 
@@ -194,4 +201,4 @@ Sign-in uses an opaque 256-bit random session cookie. Only its SHA-256 digest is
 
 The additive migration creates `users` and `sessions` and adds a nullable `scans.owner_id`; it does not drop or rewrite scan rows. PostgreSQL startup verifies the migrated schema but never applies migrations. Existing SQLite reports remain unowned and available in the local development workspace only. They are not assigned to the first provisioned account and are excluded from authenticated report lists, detail lookups, and deletes. If those reports must enter a hosted workspace, first establish ownership explicitly with the data owner and perform a separately reviewed migration; SQLite-to-PostgreSQL import keeps them unowned.
 
-Set `NODE_ENV=production`, `DATABASE_URL`, `DATABASE_SSL=false` for the Blueprint's internal Render URL, `CORS_ORIGINS`, and `TRUST_PROXY=true` on Render. Set `VITE_API_BASE_URL` to the Render API origin in Vercel. Run `npm run migrate` in `server` against PostgreSQL before provisioning hosted accounts; deployments should use persistent PostgreSQL because instance-local SQLite is not durable across hosted restarts. Provision accounts directly on the backend using the interactive command above.
+Set `NODE_ENV=production`, the Neon `DATABASE_URL`, `DATABASE_SSL=true`, `CORS_ORIGINS`, `COOKIE_SAME_SITE=None`, and `TRUST_PROXY=true` on Render. Set `VITE_API_BASE_URL=https://page-pulse-lo70.onrender.com` in Vercel. Verify the Neon connection, run `npm run migrate` in `server`, deploy the backend, then provision accounts directly on the backend using the interactive command above. Production uses PostgreSQL because instance-local SQLite is not durable across hosted restarts.

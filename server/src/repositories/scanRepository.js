@@ -3,7 +3,7 @@ const path = require('node:path');
 
 class ScanRepository {
   constructor({ databaseUrl = process.env.DATABASE_URL, filePath = process.env.SCAN_STORE_PATH || path.join(__dirname, '../../data/scans.sqlite') } = {}) {
-    this.databaseUrl = databaseUrl;
+    this.databaseUrl = typeof databaseUrl === 'string' ? databaseUrl.trim() : databaseUrl;
     this.filePath = filePath;
     this.pool = null;
     this.database = null;
@@ -15,6 +15,9 @@ class ScanRepository {
       this.pool = new Pool({ ...postgresConnectionOptions(this.databaseUrl), max: 5 });
       await verifyPostgresSchema(this.pool);
     } else {
+      if (process.env.NODE_ENV === 'production') {
+        throw new Error('DATABASE_URL is required when NODE_ENV=production; SQLite fallback is disabled in production.');
+      }
       await fs.mkdir(path.dirname(this.filePath), { recursive: true });
       const { DatabaseSync } = require('node:sqlite');
       this.database = new DatabaseSync(this.filePath);
@@ -119,15 +122,21 @@ class ScanRepository {
 }
 
 function postgresConnectionOptions(databaseUrl, sslSetting = process.env.DATABASE_SSL) {
+  if (typeof databaseUrl !== 'string' || !databaseUrl.trim()) {
+    throw new Error('DATABASE_URL is required for PostgreSQL connections.');
+  }
   if (sslSetting !== 'true' && sslSetting !== 'false') {
     throw new Error('DATABASE_SSL must be explicitly set to true (verified TLS) or false (private/local connection).');
+  }
+  if (process.env.NODE_ENV === 'production' && sslSetting !== 'true') {
+    throw new Error('DATABASE_SSL=true is required in production so PostgreSQL certificate verification remains enabled.');
   }
   let parsed;
   try { parsed = new URL(databaseUrl); }
   catch { throw new Error('DATABASE_URL must be a valid PostgreSQL connection URL.'); }
   if (!['postgres:', 'postgresql:'].includes(parsed.protocol)) throw new Error('DATABASE_URL must use the PostgreSQL scheme.');
-  const tlsParameters = ['sslmode', 'sslcert', 'sslkey', 'sslrootcert'];
-  if (tlsParameters.some((parameter) => parsed.searchParams.has(parameter))) {
+  const tlsParameters = new Set(['sslmode', 'sslcert', 'sslkey', 'sslrootcert']);
+  if ([...parsed.searchParams.keys()].some((parameter) => tlsParameters.has(parameter.toLowerCase()))) {
     throw new Error('Remove TLS query parameters from DATABASE_URL and configure TLS with DATABASE_SSL.');
   }
   return { connectionString: databaseUrl, ssl: sslSetting === 'true' ? { rejectUnauthorized: true } : undefined };

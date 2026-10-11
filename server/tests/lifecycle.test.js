@@ -2,6 +2,21 @@ const express = require('express');
 const { start } = require('../server');
 
 describe('server shutdown lifecycle', () => {
+  test('closes partially initialized storage when startup fails', async () => {
+    let closes = 0;
+    const repository = { init: async () => { throw new Error('connection failed'); }, close: async () => { closes += 1; } };
+    await expect(start({ repository, registerSignals: false })).rejects.toThrow('connection failed');
+    expect(closes).toBe(1);
+  });
+
+  test('closes initialized storage when listen fails synchronously', async () => {
+    let closes = 0;
+    const repository = { init: async () => {}, close: async () => { closes += 1; } };
+    const app = { listen: () => { throw new Error('listen failed'); } };
+    await expect(start({ repository, app, registerSignals: false })).rejects.toThrow('listen failed');
+    expect(closes).toBe(1);
+  });
+
   test('stops accepting requests, waits for in-flight requests, and closes storage once', async () => {
     let finishRequest;
     const requestGate = new Promise((resolve) => { finishRequest = resolve; });
