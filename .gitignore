@@ -1,1 +1,25 @@
-git
+# Dependencies and build output
+node_modules/
+**/node_modules/
+client/dist/
+coverage/
+
+# Local configuration and data
+.env
+.env.*
+!.env.example
+client/.env
+client/.env.*
+!client/.env.example
+server/.env
+server/.env.*
+!server/.env.example
+server/data/
+
+# Tool and editor files
+.vite/
+.vitest/
+.vscode/
+.idea/
+*.log
+*.local

@@ -1,58 +1,254 @@
-import { useState } from "react";
+import { createContext, lazy, Suspense, useCallback, useContext, useEffect, useMemo, useState } from 'react'
+import { Link, NavLink, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom'
+import { AnimatePresence, animate as animateMotion, motion, useMotionValue, useReducedMotion, useTransform } from 'framer-motion'
+import { Activity, ArrowDownRight, ArrowRight, ArrowUpRight, BadgeCheck, BarChart3, ChevronDown, CircleHelp, Clock3, Download, ExternalLink, FileText, Gauge, Globe2, Image as ImageIcon, Layers3, LockKeyhole, Menu, Moon, Plus, Search, Settings as SettingsIcon, ShieldCheck, Sparkles, Sun, WandSparkles, X, Zap } from 'lucide-react'
+import { api, normalizeWebsiteUrl } from './api'
+import { interactiveTransition, pageTransition as fade, stagger } from './motion'
 
-import Sidebar from "./components/Sidebar";
-import Navbar from "./components/Navbar";
-import Hero from "./components/Hero";
-import SearchBar from "./components/SearchBar";
-import WebsiteCard from "./components/WebsiteCard";
-import ScoreCard from "./components/ScoreCard";
-import PerformanceCards from "./components/PerformanceCards";
-import SEOAnalysis from "./components/SEOAnalysis";
+const ScoreChart = lazy(() => import('./ScoreChart.jsx'))
+const AuthContext = createContext({ user: null, signOut: async () => {} })
+const dateFmt = (value) => value ? new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }).format(new Date(value)) : '—'
+const shortDate = (value) => new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(new Date(value))
 
-function App() {
-  const [result, setResult] = useState(null);
-
-  return (
-    <div
-      style={{
-        display: "flex",
-        background: "#050816",
-        minHeight: "100vh",
-      }}
-    >
-      <Sidebar />
-
-      <main
-        style={{
-          marginLeft: "260px",
-          width: "100%",
-          padding: "30px",
-        }}
-      >
-        <Navbar />
-
-        <Hero />
-
-        <SearchBar onResult={setResult} />
-
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "2fr 1fr",
-            gap: "25px",
-            marginTop: "30px",
-          }}
-        >
-          <WebsiteCard data={result} />
-          <ScoreCard data={result} />
-        </div>
-
-        <PerformanceCards data={result} />
-
-        <SEOAnalysis data={result} />
-      </main>
-    </div>
-  );
+function useWorkspace(enabled = true) {
+  const [reports, setReports] = useState([])
+  const [storage, setStorage] = useState('sqlite')
+  const [health, setHealth] = useState(null)
+  const [user, setUser] = useState(null)
+  const [authRequired, setAuthRequired] = useState(false)
+  const [ready, setReady] = useState(false)
+  const [error, setError] = useState('')
+  const load = useCallback(async () => {
+    const status = await api.health()
+    const session = status.authentication === true ? await api.session() : { authenticated: false, user: null }
+    const required = status.authentication === true && status.workspace !== 'local-development' && !session.authenticated
+    const data = required ? { reports: [], storage: status.storage } : await api.reports()
+    return { data, status, session, required }
+  }, [])
+  const reload = useCallback(async () => {
+    try { const { data, status, session, required } = await load(); setReports(data.reports || []); setStorage(data.storage || status.storage); setHealth(status); setUser(session.user || null); setAuthRequired(required); setError('') }
+    catch (cause) { setError(cause.message); setHealth(null) }
+    finally { setReady(true) }
+  }, [load])
+  useEffect(() => {
+    if (!enabled) return undefined
+    let active = true
+    load().then(({ data, status, session, required }) => { if (active) { setReports(data.reports || []); setStorage(data.storage || status.storage); setHealth(status); setUser(session.user || null); setAuthRequired(required); setReady(true) } })
+      .catch((cause) => { if (active) { setError(cause.message); setHealth(null); setReady(true) } })
+    return () => { active = false }
+  }, [load, enabled])
+  return { reports, storage, health, error, reload, user, authRequired, ready }
 }
 
-export default App;
+function SignInPage({ workspace }) {
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  async function submit(event) {
+    event.preventDefault(); setBusy(true); setError('')
+    try { await api.signIn(email, password); setPassword(''); await workspace.reload() }
+    catch (cause) { setError(cause.message) }
+    finally { setBusy(false) }
+  }
+  return <main className="auth-screen"><section className="panel auth-panel"><Brand /><span className="kicker">Private workspace</span><h1>Sign in to Page Pulse</h1><p>Use the account provisioned by your workspace administrator.</p><form className="analyze-form" onSubmit={submit}><label htmlFor="auth-email">Email</label><input id="auth-email" type="email" autoComplete="username" value={email} onChange={(event) => setEmail(event.target.value)} required maxLength={254} /><label htmlFor="auth-password">Password</label><input id="auth-password" type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} required minLength={12} maxLength={256} />{error && <p role="alert" className="form-error">{error}</p>}<button className="button button-primary button-full" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}</button></form>{workspace.error && <p role="status" className="form-error">{workspace.error}</p>}</section></main>
+}
+
+function Brand({ compact = false }) {
+  return <Link className={`brand ${compact ? 'brand-compact' : ''}`} to="/" aria-label="Page Pulse home"><span className="brand-mark"><Activity size={19} strokeWidth={2.5} /></span><span className="brand-name">page<span>pulse</span><small>SEO intelligence</small></span></Link>
+}
+
+function PublicNav() {
+  const [open, setOpen] = useState(false)
+  return <header className="public-nav"><div className="container nav-inner"><Brand /><button className="mobile-menu icon-button" onClick={() => setOpen(!open)} aria-label={open ? 'Close navigation' : 'Open navigation'} aria-expanded={open}>{open ? <X /> : <Menu />}</button><nav className={open ? 'public-links is-open' : 'public-links'} aria-label="Main navigation"><NavLink to="/features">Features</NavLink><NavLink to="/how-it-works">How it works</NavLink><Link className="nav-workspace" to="/app">Open workspace <ArrowUpRight size={14} /></Link><Link className="button button-primary button-small" to="/app/analyze">Run an audit <ArrowRight size={15} /></Link></nav></div></header>
+}
+
+function Footer() {
+  return <footer className="site-footer"><div className="container footer-top"><Brand /><p>Clear signals for a healthier web.</p><div className="footer-links"><Link to="/features">Features</Link><Link to="/how-it-works">How it works</Link><Link to="/privacy">Privacy</Link><Link to="/terms">Terms</Link><Link to="/app/settings">Workspace settings</Link></div></div><div className="container footer-bottom"><span>© {new Date().getFullYear()} Page Pulse</span><span>Built for thoughtful site improvements.</span></div></footer>
+}
+
+function UrlForm({ initial = '', compact = false }) {
+  const [url, setUrl] = useState(initial)
+  const [error, setError] = useState('')
+  const navigate = useNavigate()
+  function submit(event) {
+    event.preventDefault()
+    try { setError(''); navigate('/app/analyze', { state: { url: normalizeWebsiteUrl(url) } }) }
+    catch (cause) { setError(cause.message) }
+  }
+  return <form className={`url-form ${compact ? 'url-form-compact' : ''}`} onSubmit={submit} noValidate><label className="sr-only" htmlFor={compact ? 'hero-url' : 'app-url'}>Website URL</label><Globe2 className="url-globe" size={19} aria-hidden="true" /><input id={compact ? 'hero-url' : 'app-url'} type="text" inputMode="url" autoComplete="url" placeholder="https://yourwebsite.com" value={url} onChange={(e) => { setUrl(e.target.value); setError('') }} aria-invalid={Boolean(error)} aria-describedby={error ? 'url-error' : compact ? 'url-hint' : undefined} required /><button className="button button-primary" type="submit">{compact ? 'Analyze website' : 'Start audit'} <ArrowRight size={16} /></button>{error && <span className="form-error" id="url-error" role="alert">{error}</span>}</form>
+}
+
+function ScoreRing({ score, size = 116 }) {
+  const value = Math.max(0, Math.min(100, Number(score) || 0))
+  const prefersReducedMotion = useReducedMotion()
+  return <div className="score-ring" style={{ position: 'relative', width: size, height: size }} role="img" aria-label={`SEO score ${value} out of 100`}><svg className="score-ring-svg" viewBox="0 0 100 100" aria-hidden="true"><circle className="score-ring-track" cx="50" cy="50" r="43" pathLength="100" /><motion.circle className="score-ring-progress" cx="50" cy="50" r="43" pathLength="100" strokeDasharray="100 100" initial={{ strokeDashoffset: prefersReducedMotion ? 100 - value : 100 }} animate={{ strokeDashoffset: 100 - value }} transition={{ duration: prefersReducedMotion ? 0 : .65, ease: [0.22, 1, 0.36, 1] }} /></svg><div className="score-ring-inner"><motion.strong key={value} initial={prefersReducedMotion ? false : { opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: prefersReducedMotion ? 0 : .25 }}>{value}</motion.strong><span>out of 100</span></div></div>
+}
+
+function ScoreBadge({ value }) {
+  const tone = value >= 80 ? 'good' : value >= 60 ? 'warn' : 'bad'
+  return <span className={`score-badge ${tone}`}><span />{value ?? '—'}<small>/100</small></span>
+}
+
+function CountUp({ value }) {
+  const motionValue = useMotionValue(0)
+  const display = useTransform(motionValue, (latest) => Math.round(latest).toLocaleString())
+  const prefersReducedMotion = useReducedMotion()
+  useEffect(() => {
+    const controls = animateMotion(motionValue, value, { duration: prefersReducedMotion ? 0 : 0.7, ease: 'easeOut' })
+    return controls.stop
+  }, [motionValue, prefersReducedMotion, value])
+  return <motion.span>{display}</motion.span>
+}
+
+function LandingPage() {
+  const features = [
+    [Search, 'On-page clarity', 'Titles, descriptions, headings, and canonical signals gathered from the page HTML.'],
+    [ShieldCheck, 'Technical foundations', 'Response status, HTTPS, robots directives, sitemap discovery, and page metadata.'],
+    [ImageIcon, 'Accessible imagery', 'Spot missing and empty image alternatives, with guidance for decorative images.'],
+    [Layers3, 'Structured content', 'Review heading order, visible text, links, and JSON-LD parsing.'],
+  ]
+  return <><PublicNav /><main>
+    <section className="hero-section"><div className="hero-orb orb-one" /><div className="hero-orb orb-two" /><div className="container hero-grid"><motion.div className="hero-copy" initial="hidden" animate="show" variants={stagger}><motion.div className="eyebrow" variants={fade}><span className="eyebrow-dot" /> A clearer view of your website</motion.div><motion.h1 variants={fade}>Make every page<br /><span>work harder.</span></motion.h1><motion.p className="hero-lede" variants={fade}>Get a practical SEO audit in seconds. Page Pulse turns the signals in your page source into a clear score and a short list of useful next steps.</motion.p><motion.div variants={fade}><UrlForm compact /><p className="form-hint" id="url-hint"><LockKeyhole size={13} /> Scans public HTTP and HTTPS pages. No account required.</p></motion.div><motion.div className="hero-proof" variants={fade}><span><BadgeCheck size={16} /> Clear, evidence-based checks</span><span><Clock3 size={16} /> Usually under a minute</span></motion.div></motion.div>
+      <motion.div className="hero-visual" initial={{ opacity: 0, scale: .97, y: 16 }} animate={{ opacity: 1, scale: 1, y: 0 }} transition={{ duration: .65, delay: .22 }}><div className="preview-window"><div className="preview-top"><div className="window-dots"><i /><i /><i /></div><span><LockKeyhole size={11} /> app.pagepulse.local / report</span><span className="preview-live"><i /> SAMPLE</span></div><div className="preview-content"><div className="preview-heading"><div><small>OVERVIEW / AUDIT #PP-1024</small><h3>Acme Studio</h3><p>acme-studio.example</p></div><span className="status-pill"><i /> Completed</span></div><div className="preview-score-row"><div className="preview-score"><ScoreRing score={84} size={126} /><div><span className="score-label">HEALTH SCORE</span><strong>Looking good</strong><small>Sample report · illustrative data</small></div></div><div className="preview-stats"><div><span>Page status</span><b className="text-good">200 <small>OK</small></b></div><div><span>Response time</span><b>0.42 <small>s</small></b></div><div><span>Pages checked</span><b>1 <small>page</small></b></div></div></div><div className="preview-divider" /><div className="preview-bottom"><div className="mini-chart-head"><div><b>SEO signals</b><small>Weighted check summary</small></div><span>+12 pts <ArrowUpRight size={13} /></span></div><div className="mini-bars">{[['Metadata',88],['Headings',100],['Images',74],['Technical',91]].map(([name,n])=><div key={name}><span>{name}</span><i><b style={{ width: `${n}%` }} /></i><small>{n}</small></div>)}</div></div></div></div><div className="floating-note"><span className="note-icon"><Sparkles size={16} /></span><div><b>3 clear next steps</b><small>Ready when you are</small></div><ArrowRight size={15} /></div></motion.div></div><div className="container hero-bottom"><span>INSPECT THE DETAILS THAT SHAPE YOUR PAGE</span><div className="hero-tags"><span>Metadata</span><i /><span>Technical health</span><i /><span>Content structure</span><i /><span>Accessibility signals</span></div></div></section>
+    <section className="section section-light" id="features"><div className="container"><div className="section-heading"><div><span className="kicker">A focused toolkit</span><h2>Know what needs attention.<br /><span>Know what to do next.</span></h2></div><p>Page Pulse checks the parts of a page that can be evaluated from its delivered HTML, then ties each finding to clear evidence.</p></div><div className="feature-grid">{features.map(([Icon,title,copy],index)=><motion.article className="feature-card" key={title} variants={fade} initial="hidden" whileInView="show" viewport={{ once:true, amount:.2 }} transition={{ delay:index*.06 }}><span className="feature-icon"><Icon size={20} /></span><span className="feature-index">0{index+1}</span><h3>{title}</h3><p>{copy}</p><Link to="/features">Explore checks <ArrowRight size={14} /></Link></motion.article>)}</div></div></section>
+    <section className="section how-section"><div className="container how-grid"><div className="how-copy"><span className="kicker">Simple by design</span><h2>From URL to<br /><span>useful insight.</span></h2><p>No sprawling spreadsheet. Just a focused audit that helps you move from wondering to improving.</p><Link className="button button-outline" to="/how-it-works">See how it works <ArrowRight size={15} /></Link></div><div className="steps-list">{[['01','Enter a website','Add a public page URL. Our server checks the destination before making a request.'],['02','Run an audit','We fetch a bounded HTML response and inspect its real metadata and structure.'],['03','Review what matters','Explore an explained score, evidence-backed issues, and practical fixes.'],['04','Track your progress','Your local workspace keeps a history of reports so you can compare future scans.']].map(([n,title,copy],i)=><motion.div className="step-item" key={n} initial="hidden" whileInView="show" viewport={{ once:true, amount:.4 }} variants={fade} transition={{ delay:i*.07 }}><span>{n}</span><div><h3>{title}</h3><p>{copy}</p></div><ArrowDownRight size={18} /></motion.div>)}</div></div></section>
+    <section className="sample-section"><div className="container sample-card"><div className="sample-copy"><span className="kicker">A peek inside</span><h2>Clear findings.<br /><span>Practical fixes.</span></h2><p>Each result explains what the scanner found, why the signal matters, and where to start improving.</p><Link className="button button-primary" to="/app">Open the workspace <ArrowRight size={15} /></Link></div><div className="sample-report"><div className="sample-report-head"><div><small>ILLUSTRATIVE SAMPLE</small><b>Acme Studio · Homepage</b></div><ScoreBadge value={84} /></div><div className="sample-issue issue-high"><span className="issue-marker" /><div><b>Add alt text to informative images</b><p>2 images have no alt attribute. Add a concise description, or use an empty value for decorative images.</p></div><span className="priority">Medium</span></div><div className="sample-issue"><span className="issue-marker marker-green" /><div><b>Title and description detected</b><p>Evidence: “Design systems for ambitious teams” · 54 characters</p></div><span className="priority priority-done">Good</span></div><div className="sample-report-foot"><span><ShieldCheck size={14} /> Findings reflect page HTML</span><span>Sample content</span></div></div></div></section>
+    <section className="section faq-section"><div className="container faq-grid"><div><span className="kicker">Good to know</span><h2>A few things<br />people ask.</h2></div><div className="faq-list">{[['What does Page Pulse check?','It checks the HTML response for metadata, heading structure, image alternatives, links, canonical and robots signals, HTTPS, and basic structured data.'],['Can it inspect content rendered by JavaScript?','No. The current scanner reads the HTML returned by the server and does not execute browser JavaScript. Some client-rendered content may not appear in its findings.'],['Does a good score guarantee better rankings?','No. Search rankings depend on many systems and factors outside this audit. Page Pulse reports page-level signals and does not guarantee ranking or traffic changes.'],['Does it measure speed or Core Web Vitals?','It reports server response duration only. It does not run Lighthouse or measure Core Web Vitals or real user performance.']].map(([question,answer])=><details key={question}><summary>{question}<ChevronDown size={17} /></summary><p>{answer}</p></details>)}</div></div></section>
+    <section className="cta-section"><div className="container cta-box"><div><span className="kicker">Start with one page</span><h2>Your next improvement<br />is already in the source.</h2></div><Link className="button button-white" to="/app/analyze">Run your first audit <ArrowRight size={15} /></Link></div></section>
+  </main><Footer /></>
+}
+
+function PublicInfo({ type }) {
+  const details = {
+    features: { kicker:'Page Pulse features', title:'A grounded view of page health.', intro:'Page Pulse inspects the HTML a site returns and turns observable signals into practical findings.', blocks:[['Metadata','Title and description presence, length guidance, Open Graph values, and canonical link.'],['Technical checks','HTTP status, HTTPS, redirects, robots meta directives, robots.txt, and sitemap discovery.'],['Content structure','H1, H2, and H3 counts, heading order, visible text estimate, and JSON-LD parsing.'],['Images and links','Missing and empty image alt values plus internal, external, and incomplete anchor links.']] },
+    'how-it-works': { kicker:'How it works', title:'A practical audit in four steps.', intro:'Each scan follows a simple workflow that keeps the results understandable and the request path bounded.', blocks:[['01 · Submit a public URL','Enter an HTTP or HTTPS address. Private, local, link-local, and reserved network destinations are rejected.'],['02 · Fetch the page safely','Page Pulse validates DNS results, pins the connection, checks each redirect, and limits time and bytes.'],['03 · Inspect real HTML','The scanner parses delivered HTML without executing JavaScript or claiming browser performance data.'],['04 · Keep and review the report','Reports are saved to the configured local SQLite or PostgreSQL database for later viewing.']] },
+    privacy: { kicker:'Privacy', title:'Your scans stay in your workspace.', intro:'Hosted workspaces use operator-provisioned accounts; local development can use the existing account-free SQLite workspace.', blocks:[['What is stored','Scan reports include the submitted URL, final URL, timestamp, HTTP response details, extracted metrics, score, and findings. Hosted account email, scrypt password hash, and expiring hashed session identifiers are also stored. Raw page HTML is not stored.'],['Where it is stored','By default, reports are saved to server/data/scans.sqlite on the machine running the backend. When DATABASE_URL is configured, the PostgreSQL scans table is used instead.'],['Retention and deletion','Local reports remain until you clear history or remove the local data file. PostgreSQL reports remain until database records are deleted. Settings provides a clear-history action for local development.'],['Public deployments','Hosted analysis and report APIs require sign-in and enforce report ownership. Existing local reports remain unowned and are not imported automatically.']] },
+    terms: { kicker:'Terms', title:'Use the audit as a guide.', intro:'Page Pulse is an analysis tool that provides observations about returned page HTML.', blocks:[['No ranking promise','The score is a transparent heuristic over selected page-level checks. It does not predict ranking outcomes or guarantee traffic improvements.'],['Authorized scans','Only scan websites that you own or are authorized to inspect. The scanner restricts network destinations and bounds requests.'],['Scope of findings','The scanner does not render JavaScript, test image URLs, assess the full accessibility standard, run Lighthouse, or measure Core Web Vitals.'],['Local workspace','Hosted workspaces require an operator-provisioned account. Only scan websites you own or are authorized to inspect.']] },
+  }[type]
+  return <><PublicNav /><main className="info-page"><div className="container"><span className="kicker">{details.kicker}</span><h1>{details.title}</h1><p className="info-intro">{details.intro}</p><div className="info-blocks">{details.blocks.map(([title,copy],i)=><motion.article className="info-block" key={title} initial="hidden" whileInView="show" viewport={{ once:true }} variants={fade} transition={{ delay:i*.06 }}><span>{String(i+1).padStart(2,'0')}</span><div><h2>{title}</h2><p>{copy}</p></div></motion.article>)}</div><Link className="button button-primary" to="/app">Open workspace <ArrowRight size={15} /></Link></div></main><Footer /></>
+}
+
+function AppShell({ title, subtitle, children, reports, storage }) {
+  const auth = useContext(AuthContext)
+  const [mobileOpen, setMobileOpen] = useState(false)
+  const location = useLocation()
+  useEffect(() => {
+    if (!mobileOpen) return undefined
+    const closeOnEscape = (event) => { if (event.key === 'Escape') setMobileOpen(false) }
+    window.addEventListener('keydown', closeOnEscape)
+    return () => window.removeEventListener('keydown', closeOnEscape)
+  }, [mobileOpen])
+  return <div className="app-shell"><aside id="workspace-sidebar" aria-label="Workspace sidebar" className={`sidebar ${mobileOpen ? 'sidebar-open' : ''}`}><div className="sidebar-brand"><Brand compact /><button className="icon-button sidebar-close" onClick={() => setMobileOpen(false)} aria-label="Close menu"><X size={18} /></button></div><div className="workspace-label"><span className="workspace-avatar">P</span><span><b>Personal workspace</b><small>Local development</small></span><ChevronDown size={14} /></div><p className="nav-section-label">WORKSPACE</p><nav className="side-nav" aria-label="Workspace navigation" onClick={() => setMobileOpen(false)}><NavLink end to="/app"><Gauge size={18} /><span>Overview</span></NavLink><NavLink to="/app/analyze"><Search size={18} /><span>Analyze website</span><Plus size={15} className="nav-plus" /></NavLink><NavLink to="/app/reports"><FileText size={18} /><span>Reports</span><small>{reports.length || ''}</small></NavLink><NavLink to="/app/settings"><SettingsIcon size={18} /><span>Settings</span></NavLink></nav><div className="sidebar-bottom"><div className="sidebar-security"><span><ShieldCheck size={17} /></span><div><b>Private by default</b><small>Data stays on this server.</small></div></div><div className="sidebar-foot"><span><span className="online-dot" /> API {storage === 'postgres' ? 'connected' : 'local'}</span><a href="https://github.com/dattu-gadge/page-pulse" target="_blank" rel="noreferrer" aria-label="Page Pulse repository"><ExternalLink size={14} /></a></div></div></aside>{mobileOpen && <button className="sidebar-backdrop" aria-label="Close menu" onClick={() => setMobileOpen(false)} />}
+    <div className="app-main"><header className="app-topbar"><button className="icon-button app-menu" aria-label="Open menu" aria-expanded={mobileOpen} aria-controls="workspace-sidebar" onClick={() => setMobileOpen(true)}><Menu size={20} /></button><div className="breadcrumbs"><Link to="/app">Workspace</Link><span>/</span><b>{title}</b></div><div className="topbar-actions"><span className="local-chip"><span className="online-dot" /> {auth.user?.email || 'Local workspace'}</span>{auth.user && <button className="button button-secondary button-small" onClick={auth.signOut}>Sign out</button>}<ThemeButton /><Link className="topbar-help" to="/how-it-works" aria-label="Help"><CircleHelp size={18} /></Link><span className="topbar-avatar" aria-label={auth.user?.email || 'Local workspace account'}>{auth.user?.email?.[0]?.toUpperCase() || 'P'}</span></div></header><AnimatePresence mode="wait"><motion.main className="app-content" key={location.pathname} initial="hidden" animate="show" exit="exit" variants={fade}><div className="page-heading"><div><div className="page-eyebrow"><span className="online-dot" /> {subtitle || 'PAGE PULSE WORKSPACE'}</div><h1>{title}</h1></div>{children && null}</div>{children}</motion.main></AnimatePresence><div className="app-copyright">Page Pulse · Workspace <span>HTML analysis only</span></div></div></div>
+}
+
+function ThemeButton() {
+  const [theme, setTheme] = useState(() => localStorage.getItem('pagepulse-theme') || 'dark')
+  useEffect(() => { document.documentElement.dataset.theme = theme; localStorage.setItem('pagepulse-theme', theme) }, [theme])
+  return <button className="icon-button theme-button" aria-pressed={theme === 'light'} onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}>{theme === 'dark' ? <Sun size={17} /> : <Moon size={17} />}</button>
+}
+
+function StatCard({ icon: Icon, label, value, note, accent }) {
+  return <motion.article className="stat-card" variants={fade} whileHover={{ y: -3 }} transition={interactiveTransition}><div className="stat-card-top"><span>{label}</span><i className={accent}><Icon size={17} /></i></div><strong>{typeof value === 'number' ? <CountUp value={value} /> : value}</strong><small>{note}</small></motion.article>
+}
+
+function ReportRow({ report }) {
+  return <Link className="report-row" to={`/app/reports/${report.id}`}><span className="site-favicon"><Globe2 size={17} /></span><span className="report-site"><b>{report.finalUrl || report.submittedUrl}</b><small>{report.metrics?.title?.text || new URL(report.submittedUrl).hostname}</small></span><span className="report-status"><i className={report.httpStatus >= 200 && report.httpStatus < 400 ? 'status-dot' : 'status-dot bad-dot'} />{report.httpStatus || 'Error'} <small>· {report.status || 'completed'}</small></span><span className="report-date">{dateFmt(report.scannedAt)}</span><ScoreBadge value={report.score?.value} /><ArrowRight className="row-arrow" size={15} /></Link>
+}
+
+function EmptyState({ icon: Icon = FileText, title, copy, action }) { return <div className="empty-state"><span><Icon size={23} /></span><h3>{title}</h3><p>{copy}</p>{action}</div> }
+
+function Dashboard({ workspace }) {
+  const { reports, storage, error } = workspace
+  const latest = reports[0]
+  const scoredReports = reports.filter((item) => item.status !== 'failed' && typeof item.score?.value === 'number')
+  const avg = scoredReports.length ? Math.round(scoredReports.reduce((sum, item) => sum + item.score.value, 0) / scoredReports.length) : null
+  const issues = reports.flatMap((report) => report.issues || [])
+  const categories = Object.entries(issues.reduce((acc, issue) => { acc[issue.category] = (acc[issue.category] || 0) + 1; return acc }, {})).sort((a,b) => b[1]-a[1]).slice(0,4)
+  const chartData = [...scoredReports].reverse().slice(-10).map((item) => ({ date: shortDate(item.scannedAt), score: item.score.value }))
+  return <AppShell title="Overview" subtitle="YOUR SITE HEALTH, AT A GLANCE" reports={reports} storage={storage}><div className="dashboard-actions"><div><p className="muted-intro">A clear view of the signals behind your pages.</p></div><Link className="button button-primary" to="/app/analyze"><Plus size={16} /> New audit</Link></div>{error && <div className="inline-alert" role="status"><Activity size={16} /> API unavailable: {error} <Link to="/app/settings">Check connection</Link></div>}
+    <motion.div className="stats-grid" variants={stagger} initial="hidden" animate="show"><StatCard icon={Activity} label="Total scans" value={reports.length} note={storage === 'postgres' ? 'Stored in PostgreSQL' : 'Saved on this server'} accent="accent-violet" /><StatCard icon={Gauge} label="Average score" value={avg == null ? '—' : `${avg}`} note={avg == null ? 'Available after your first scan' : 'Across all saved reports'} accent="accent-blue" /><StatCard icon={Clock3} label="Latest response" value={latest ? `${latest.responseTimeMs ?? '—'} ms` : '—'} note={latest ? dateFmt(latest.scannedAt) : 'No scan history yet'} accent="accent-green" /><StatCard icon={Zap} label="Latest status" value={latest ? (latest.httpStatus || 'Error') : '—'} note={latest ? new URL(latest.submittedUrl).hostname : 'Run an audit to get started'} accent="accent-amber" /></motion.div>
+    <motion.div className="dashboard-grid" initial={{ opacity: 0, y: 7 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .42, delay: .12, ease: [0.22, 1, 0.36, 1] }}><section className="panel chart-panel"><div className="panel-heading"><div><h2>Score trend</h2><p>Your latest saved audit scores</p></div><Link to="/app/reports">All reports <ArrowRight size={14} /></Link></div>{chartData.length > 1 ? <Suspense fallback={<div className="chart-wrap chart-loading" role="status">Loading score trend…</div>}><ScoreChart data={chartData} /></Suspense> : <EmptyState icon={BarChart3} title={reports.length ? 'One scan in the trend' : 'Your trend starts here'} copy={reports.length ? 'Run another audit to compare real scores over time.' : 'After you run audits, your saved scores will appear here.'} action={!reports.length && <Link className="text-link" to="/app/analyze">Run your first scan <ArrowRight size={14} /></Link>} />}</section>
+      <section className="panel latest-panel"><div className="panel-heading"><div><h2>Latest audit</h2><p>Most recently completed scan</p></div><Clock3 size={17} className="heading-icon" /></div>{latest ? <div className="latest-summary"><div className="latest-score"><ScoreRing score={latest.score?.value} size={102} /><div><span className="muted-label">OVERALL SCORE</span><b>{latest.score?.value >= 80 ? 'Looking good' : latest.score?.value >= 60 ? 'Room to improve' : 'Needs attention'}</b><small>{dateFmt(latest.scannedAt)}</small></div></div><div className="latest-url"><Globe2 size={15} /><span>{new URL(latest.submittedUrl).hostname}</span><span className="http-code">HTTP {latest.httpStatus}</span></div><Link className="button button-secondary button-full" to={`/app/reports/${latest.id}`}>View full report <ArrowRight size={15} /></Link></div> : <EmptyState icon={Gauge} title="No audit yet" copy="Start with a public page. Your actual scan result will appear here." action={<Link className="button button-primary button-small" to="/app/analyze">Analyze a website <ArrowRight size={14} /></Link>} />}</section>
+      <section className="panel recent-panel"><div className="panel-heading"><div><h2>Recent audits</h2><p>Your saved scan history</p></div><Link to="/app/reports">View all <ArrowRight size={14} /></Link></div>{reports.length ? <div className="report-list">{reports.slice(0,5).map((report)=><ReportRow key={report.id} report={report} />)}</div> : <EmptyState icon={FileText} title="Reports live here" copy="Completed scans are saved in this workspace for later review." />}</section>
+      <section className="panel issues-panel"><div className="panel-heading"><div><h2>Common findings</h2><p>Categories from your saved reports</p></div><Layers3 size={17} className="heading-icon" /></div>{categories.length ? <div className="category-list">{categories.map(([name,count],i)=><div className="category-item" key={name}><span className={`category-icon cat-${i}`}><Layers3 size={15} /></span><span>{name}</span><b>{count}</b></div>)}</div> : <EmptyState icon={BadgeCheck} title="No issues to summarize" copy="Run an audit to see evidence-based recommendations here." />}</section></motion.div>
+    <p className="disclosure"><ShieldCheck size={15} /> Scores summarize selected HTML checks. They do not predict rankings, Core Web Vitals, or JavaScript-rendered content.</p></AppShell>
+}
+
+function AnalyzePage({ workspace }) {
+  const location = useLocation()
+  const navigate = useNavigate()
+  const prefersReducedMotion = useReducedMotion()
+  const [url, setUrl] = useState(location.state?.url || '')
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [stage, setStage] = useState('')
+  async function submit(event) {
+    event.preventDefault(); setError('')
+    let safeUrl
+    try { safeUrl = normalizeWebsiteUrl(url) } catch (cause) { setError(cause.message); return }
+    setBusy(true); setStage('Validating the destination and inspecting the page HTML…')
+    try { const report = await api.analyze(safeUrl); setStage('Saving your report…'); await workspace.reload(); navigate(`/app/reports/${report.id}`, { replace:true }) }
+    catch (cause) {
+      if (cause.report?.id) { await workspace.reload(); navigate(`/app/reports/${cause.report.id}`, { replace: true }); return }
+      setError(cause.message); setBusy(false); setStage('')
+    }
+  }
+  return <AppShell title="Analyze website" subtitle="RUN A REAL HTML AUDIT" reports={workspace.reports} storage={workspace.storage}><div className="analyze-layout"><section className="panel analyze-panel"><div className="analyze-icon"><WandSparkles size={22} /></div><span className="kicker">One page per scan</span><h2>See what your page<br />is telling search engines.</h2><p>Enter a public webpage to inspect its delivered HTML. Findings include actual page evidence, an explained score, and suggested fixes.</p><form className="analyze-form" onSubmit={submit} noValidate><label htmlFor="audit-url">Website URL</label><div className="analyze-input"><Globe2 size={17} /><input id="audit-url" type="text" inputMode="url" placeholder="https://example.com" value={url} onChange={(e)=>{setUrl(e.target.value);setError('')}} aria-invalid={Boolean(error)} aria-describedby={error?'analyze-error':'scan-limitations'} required /></div>{error && <p className="form-error" id="analyze-error" role="alert">{error}</p>}<button className="button button-primary button-full" type="submit" disabled={busy}>{busy ? <><span className="spinner" /> Analyzing…</> : <>Analyze this page <ArrowRight size={16} /></>}</button><AnimatePresence initial={false}>{busy && <motion.p className="scan-stage" role="status" initial={prefersReducedMotion ? false : { opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -3 }} transition={{ duration: prefersReducedMotion ? 0 : .24, ease: [0.22, 1, 0.36, 1] }}><span className="loading-pulse" />{stage}</motion.p>}</AnimatePresence></form><div className="scan-notes" id="scan-limitations"><span><ShieldCheck size={16} /> Public HTTP and HTTPS pages only</span><span><LockKeyhole size={16} /> Private and internal destinations are blocked</span><span><Activity size={16} /> HTML checks only; no browser rendering</span></div></section><aside className="analyze-aside"><div className="panel"><span className="kicker">What you will get</span><div className="deliverable"><span><Gauge size={17} /></span><div><b>A weighted score</b><small>Groups evaluated checks; excludes unavailable checks.</small></div></div><div className="deliverable"><span><Search size={17} /></span><div><b>Observed page signals</b><small>Metadata, headings, links, images, and technical basics.</small></div></div><div className="deliverable"><span><WandSparkles size={17} /></span><div><b>Evidence-backed next steps</b><small>Every finding includes evidence and a suggested fix.</small></div></div></div><div className="note-box"><CircleHelp size={17} /><p><b>About scan limits</b><br />Page Pulse does not execute JavaScript or measure Lighthouse, Core Web Vitals, or image availability.</p></div></aside></div></AppShell>
+}
+
+function ReportsPage({ workspace }) {
+  const { reports, storage } = workspace
+  const [query, setQuery] = useState('')
+  const [sort, setSort] = useState('date')
+  const [status, setStatus] = useState('all')
+  const filtered = useMemo(() => reports.filter((item)=>`${item.submittedUrl} ${item.finalUrl||''} ${item.metrics?.title?.text||''}`.toLowerCase().includes(query.toLowerCase())).filter((item)=>status==='all'||(status==='good'?(item.httpStatus>=200&&item.httpStatus<400):(item.httpStatus<200||item.httpStatus>=400))).sort((a,b)=>sort==='score'?(b.score?.value||0)-(a.score?.value||0):new Date(b.scannedAt)-new Date(a.scannedAt)),[reports,query,sort,status])
+  return <AppShell title="Reports" subtitle={`${reports.length} SAVED ${reports.length===1?'REPORT':'REPORTS'}`} reports={reports} storage={storage}><div className="reports-toolbar"><div className="reports-search"><Search size={16} /><input aria-label="Search reports" placeholder="Search by URL or page title" value={query} onChange={(e)=>setQuery(e.target.value)} /></div><label className="sr-only" htmlFor="report-status">Filter by status</label><select id="report-status" value={status} onChange={(e)=>setStatus(e.target.value)}><option value="all">All statuses</option><option value="good">Successful response</option><option value="error">HTTP error</option></select><label className="sr-only" htmlFor="report-sort">Sort reports</label><select id="report-sort" value={sort} onChange={(e)=>setSort(e.target.value)}><option value="date">Newest first</option><option value="score">Highest score</option></select><Link className="button button-primary button-small" to="/app/analyze"><Plus size={15} /> New audit</Link></div><section className="panel reports-panel"><div className="report-table-head"><span>WEBSITE / PAGE</span><span>RESPONSE</span><span>SCAN DATE</span><span>SCORE</span></div>{filtered.length ? <div className="report-list">{filtered.map((report)=><ReportRow key={report.id} report={report} />)}</div> : <EmptyState icon={query||status!=='all'?Search:FileText} title={reports.length?'No matching reports':'Your report history is empty'} copy={reports.length?'Try another search or filter to see your saved audits.':'Run an audit to create your first saved report.'} action={!reports.length&&<Link className="button button-primary button-small" to="/app/analyze">Analyze a website <ArrowRight size={14} /></Link>} />}</section><p className="reports-footnote"><LockKeyhole size={14} /> Stored using {storage==='postgres'?'the configured PostgreSQL database':'local SQLite database'}.</p></AppShell>
+}
+
+function downloadFile(filename, content, type) { const blob = new Blob([content],{type}); const objectUrl = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = objectUrl; link.download = filename; link.click(); setTimeout(() => URL.revokeObjectURL(objectUrl), 1000) }
+function ReportDetail({ workspace }) {
+  const { scanId } = useParams()
+  const [loadState, setLoadState] = useState({ scanId: null, report: null, error: null, busy: true })
+  useEffect(()=>{
+    const controller=new AbortController()
+    let current=true
+    api.report(scanId,controller.signal)
+      .then((result)=>{if(current)setLoadState({scanId,report:result,error:null,busy:false})})
+      .catch((cause)=>{
+        if(!current||controller.signal.aborted||cause?.name==='AbortError')return
+        setLoadState({scanId,report:null,error:cause,busy:false})
+      })
+    return ()=>{current=false;controller.abort()}
+  },[scanId])
+  const {report,error,busy}=loadState.scanId===scanId?loadState:{report:null,error:null,busy:true}
+  if (busy) return <AppShell title="Loading report" subtitle="FETCHING SAVED SCAN" reports={workspace.reports} storage={workspace.storage}><div className="report-loading"><span className="spinner" /> Loading saved report…</div><div className="skeleton-line" /><div className="skeleton-block" /></AppShell>
+  if (error||!report) {
+    const notFound=error?.status===404||(!error&&!report)
+    return <AppShell title={notFound?'Report not found':'Could not load report'} subtitle={notFound?'REPORT NOT FOUND':'REPORT LOAD FAILED'} reports={workspace.reports} storage={workspace.storage}><div className="panel"><EmptyState title={notFound?'We could not find this report':'The report could not be loaded'} copy={error?.message||(notFound?'The report may have been removed.':'Please try again in a moment.')} action={<Link className="button button-secondary" to="/app/reports">Back to reports</Link>} /></div></AppShell>
+  }
+  const m=report.metrics||{}
+  const metrics=[['Title',m.title?.present?`${m.title.characters} characters`:'Missing',m.title?.text||'No title element found'],['Description',m.description?.present?`${m.description.characters} characters`:'Missing',m.description?.text||'No meta description found'],['Headings',`${m.headings?.h1Count??0} H1 · ${m.headings?.h2Count??0} H2 · ${m.headings?.h3Count??0} H3`,(m.headings?.h1Text||[]).join(' · ')||'No H1 text found'],['Images',`${m.images?.total??0} total · ${m.images?.missingAlt??0} missing alt`,`${m.images?.emptyAlt??0} empty alt values`],['Links',`${m.links?.internal??0} internal · ${m.links?.external??0} external`,`${m.links?.missingDestination??0} missing destinations`],['Open Graph',m.openGraph?.title?'Title present':'Title missing',`Title: ${m.openGraph?.title||'not found'} · Description: ${m.openGraph?.description||'not found'} · Image: ${m.openGraph?.image||'not found'}`],['Page signals',`${m.https?'HTTPS':'HTTP'} · ${m.language||'Language not declared'}`,`Canonical: ${m.canonical||'not found'} · Viewport: ${m.viewport?'present':'not found'}`],['Robots & sitemap',`robots.txt ${m.robotsTxt?.available?'available':'not found'}`,`Sitemap ${m.sitemap?.available?'discovered':'not found'} · Indexing directive: ${m.indexability?.signals||'none found'}`],['Content',`${m.visibleWordCount??0} visible words`,`${m.htmlBytes??0} HTML bytes · ${m.structuredData?.count??0} JSON-LD block(s), ${m.structuredData?.invalidCount??0} invalid`]]
+  const breakdown=report.scoreBreakdown||report.score?.breakdown||[]
+  function exportCSV(){const rows=[['Issue ID','Category','Priority','Title','Evidence','Suggested fix'],...(report.issues||[]).map(i=>[i.issueId,i.category,i.priority,i.title,i.evidence,i.suggestedFix])];const csv=rows.map(r=>r.map(v=>`"${String(v??'').replaceAll('"','""')}"`).join(',')).join('\r\n');downloadFile(`page-pulse-${scanId}.csv`,csv,'text/csv;charset=utf-8')}
+  return <AppShell title={report.status==='failed'?'Audit failed':'Audit report'} subtitle={report.status==='failed'?'SCAN COULD NOT FETCH THE PAGE':'SAVED PAGE ANALYSIS'} reports={workspace.reports} storage={workspace.storage}><div className="detail-toolbar"><div className="detail-url"><Globe2 size={16} /><span>{report.finalUrl||report.submittedUrl}</span></div><div className="detail-actions"><button className="button button-secondary button-small" onClick={()=>downloadFile(`page-pulse-${scanId}.json`,JSON.stringify(report,null,2),'application/json')}><Download size={14} /> JSON</button><button className="button button-secondary button-small" onClick={exportCSV}><Download size={14} /> CSV</button><button className="button button-secondary button-small" onClick={()=>window.print()}><FileText size={14} /> Print</button></div></div>{report.error&&<div className="inline-alert" role="alert"><Activity size={16} /> {report.error.message}</div>}<div className="detail-overview"><section className="panel report-score-panel"><div className="report-score-main"><ScoreRing score={report.score?.value} size={138} /><div><span className="kicker">{report.status==='failed'?'SCAN STATUS':'OVERALL SEO SCORE'}</span><h2>{report.status==='failed'?'Scan failed':report.score?.value>=80?'Healthy signals':report.score?.value>=60?'Room to improve':'Needs attention'}</h2><p>{report.score?.formula}</p></div></div><div className="report-meta"><span><Clock3 size={14} /> {dateFmt(report.scannedAt)}</span><span><Activity size={14} /> {report.httpStatus?`HTTP ${report.httpStatus} · ${report.responseTimeMs} ms`:report.status}</span><span><Globe2 size={14} /> {m.htmlBytes||0} bytes analyzed</span></div></section><section className="panel breakdown-panel"><div className="panel-heading"><div><h2>Score breakdown</h2><p>Weighted checks, normalized when unevaluated</p></div><CircleHelp size={16} className="heading-icon" /></div>{breakdown.length?<div className="breakdown-list">{breakdown.map((item)=><div className="breakdown-row" key={item.category}><div><span>{item.category}</span><span>{item.status==='not-evaluated'?'Not evaluated':`${item.score}/100`}</span></div>{item.status!=='not-evaluated'&&<div className="meter"><i style={{width:`${item.score}%`}} /></div>}</div>)}</div>:<EmptyState title="No score available" copy="A score is calculated after the page returns parseable HTML." />}</section></div><div className="report-content-grid"><section className="panel metrics-panel"><div className="panel-heading"><div><h2>Page signals</h2><p>Values parsed from the fetched HTML</p></div><Layers3 size={17} className="heading-icon" /></div><div className="metric-list">{metrics.map(([label,value,evidence])=><div className="metric-row" key={label}><span className="metric-key">{label}</span><b>{value}</b><small>{evidence}</small></div>)}</div></section><section className="panel findings-panel"><div className="panel-heading"><div><h2>Recommendations</h2><p>{report.issues?.length||0} findings from this scan</p></div><WandSparkles size={17} className="heading-icon" /></div>{report.issues?.length ? <div className="findings-list">{report.issues.map((issue)=><article className="finding" key={issue.issueId}><div className="finding-top"><span className={`priority-pill priority-${issue.priority}`}>{issue.priority}</span><span className="finding-category">{issue.category}</span></div><h3>{issue.title}</h3><p>{issue.description}</p><div className="finding-evidence"><b>Observed</b><span>{issue.evidence}</span></div><div className="finding-why"><b>Why it matters</b><span>{issue.whyItMatters}</span></div><div className="finding-fix"><b>Suggested fix</b><span>{issue.suggestedFix}</span></div></article>)}</div>:<EmptyState icon={BadgeCheck} title="No findings from these checks" copy="This scan did not detect issues covered by the current rule set." />}</section></div><section className="panel limitation-panel"><ShieldCheck size={17} /><div><b>Understand the scan scope</b><p>{(report.limitations||[]).join(' ')}</p><p>Robots and sitemap lookups use the same safe-fetch rules. A missing result does not prove that a crawler cannot access the page.</p></div></section><div className="print-footer">Page Pulse audit · {report.submittedUrl} · {dateFmt(report.scannedAt)}</div></AppShell>
+}
+
+function SettingsPage({ workspace }) {
+  const [clearing,setClearing]=useState(false)
+  const [message,setMessage]=useState('')
+  async function clear(){if(!window.confirm('Delete all reports saved in this local workspace? This cannot be undone.'))return;setClearing(true);setMessage('');try{await api.clearReports();await workspace.reload();setMessage('Local scan history cleared.')}catch(cause){setMessage(cause.message)}finally{setClearing(false)}}
+  return <AppShell title="Settings" subtitle="WORKSPACE PREFERENCES & STATUS" reports={workspace.reports} storage={workspace.storage}><div className="settings-grid"><section className="panel settings-panel"><div className="panel-heading"><div><h2>Appearance</h2><p>Preferences saved in this browser</p></div><Sun size={17} className="heading-icon" /></div><div className="setting-row"><div><b>Color theme</b><small>Choose a theme for the workspace.</small></div><ThemeButton /></div></section><section className="panel settings-panel"><div className="panel-heading"><div><h2>API connection</h2><p>Current service and storage mode</p></div><Activity size={17} className="heading-icon" /></div><div className="connection-card"><span className={workspace.health?'connection-indicator':'connection-indicator disconnected'}><Activity size={17} /></span><div><b>{workspace.health?'Connected':'Unavailable'}</b><small>{workspace.health?`Page Pulse API v${workspace.health.version} · ${workspace.storage==='postgres'?'PostgreSQL':'Local SQLite database'}`:workspace.error||'The API has not responded.'}</small></div><button className="button button-secondary button-small" onClick={workspace.reload}>Check again</button></div><p className="setting-note">SQLite reports live on the backend machine and are not synced across devices. Configure DATABASE_URL to use PostgreSQL.</p></section><section className="panel settings-panel settings-wide"><div className="panel-heading"><div><h2>Data & privacy</h2><p>Manage reports saved in this local workspace</p></div><LockKeyhole size={17} className="heading-icon" /></div><div className="setting-row"><div><b>Clear scan history</b><small>Deletes all reports from the configured repository.</small></div><button className="button button-danger button-small" onClick={clear} disabled={clearing}>{clearing?'Clearing…':'Clear history'}</button></div>{message&&<p role="status" className="settings-message">{message}</p>}<div className="setting-note setting-notice"><ShieldCheck size={16} /><span>Hosted report access requires sign-in; unowned legacy reports remain visible only in the local development workspace.</span></div></section><section className="panel settings-panel settings-wide"><div className="panel-heading"><div><h2>Analysis scope</h2><p>What Page Pulse measures today</p></div><CircleHelp size={17} className="heading-icon" /></div><div className="scope-chips"><span>Returned HTML</span><span>Server response</span><span>Metadata</span><span>Headings</span><span>Links & images</span><span>Robots & sitemap</span></div><p className="setting-note">The scanner does not execute JavaScript, test individual image URLs, run Lighthouse, or measure Core Web Vitals. See <Link to="/privacy">privacy details</Link>.</p></section></div></AppShell>
+}
+
+function AppRoutes() {
+  const location=useLocation()
+  const workspace=useWorkspace(location.pathname.startsWith('/app'))
+  const reloadWorkspace=workspace.reload
+  const signOut=useCallback(async()=>{await api.signOut();await reloadWorkspace()},[reloadWorkspace])
+  const routes=<Routes><Route path="/" element={<LandingPage />} /><Route path="/features" element={<PublicInfo type="features" />} /><Route path="/how-it-works" element={<PublicInfo type="how-it-works" />} /><Route path="/privacy" element={<PublicInfo type="privacy" />} /><Route path="/terms" element={<PublicInfo type="terms" />} /><Route path="/app" element={<Dashboard workspace={workspace} />} /><Route path="/app/analyze" element={<AnalyzePage workspace={workspace} />} /><Route path="/app/reports" element={<ReportsPage workspace={workspace} />} /><Route path="/app/reports/:scanId" element={<ReportDetail workspace={workspace} />} /><Route path="/app/settings" element={<SettingsPage workspace={workspace} />} /><Route path="*" element={<PublicInfo type="features" />} /></Routes>
+  return <AuthContext.Provider value={{user:workspace.user,signOut}}>{location.pathname.startsWith('/app')&&!workspace.ready ? <main className="auth-screen"><div role="status">Connecting to workspace…</div></main> : workspace.authRequired ? <SignInPage workspace={workspace} /> : routes}</AuthContext.Provider>
+}
+
+export default function App(){return <AppRoutes />}

@@ -1,32 +1,14 @@
-const cheerio = require("cheerio");
+const { parseHTML } = require('./src/services/seoAnalyzer');
 
-function parseHTML(html) {
-  const $ = cheerio.load(html);
-
-  const pageTitle = $("title").text();
-
-  const metaDescription =
-    $('meta[name="description"]').attr("content") || "Not Found";
-
-  const h1Count = $("h1").length;
-
-  const imagesMissingAlt = $("img").filter(function () {
-    return !$(this).attr("alt");
-  }).length;
-
-  const wordCount = $("body")
-    .text()
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean).length;
-
+function legacyParseHTML(html) {
+  const { metrics } = parseHTML(html);
   return {
-    pageTitle,
-    metaDescription,
-    h1Count,
-    imagesMissingAlt,
-    wordCount,
+    pageTitle: metrics.title.text,
+    metaDescription: metrics.description.present ? metrics.description.text : 'Not Found',
+    h1Count: metrics.headings.h1Count,
+    imagesMissingAlt: metrics.images.missingAlt,
+    wordCount: metrics.visibleWordCount,
   };
 }
 
-module.exports = parseHTML;
+module.exports = legacyParseHTML;

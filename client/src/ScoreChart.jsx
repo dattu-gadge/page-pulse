@@ -1,0 +1,8 @@
+import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import { motion, useReducedMotion } from 'framer-motion'
+
+export default function ScoreChart({ data }) {
+  const prefersReducedMotion = useReducedMotion()
+  const description = `Saved audit scores: ${data.map((item) => `${item.date}, ${item.score} out of 100`).join('; ')}`
+  return <motion.div className="chart-wrap" role="img" aria-label={description} initial={prefersReducedMotion ? false : { opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: prefersReducedMotion ? 0 : .4, ease: [0.22, 1, 0.36, 1] }}><ResponsiveContainer width="100%" height="100%"><AreaChart data={data} margin={{ top: 10, right: 8, left: -24, bottom: 0 }}><defs><linearGradient id="scoreFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#9273ff" stopOpacity={.28} /><stop offset="100%" stopColor="#9273ff" stopOpacity={0} /></linearGradient></defs><CartesianGrid stroke="var(--chart-grid)" vertical={false} /><XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fill: 'var(--text-muted)', fontSize: 11 }} dy={8} /><YAxis domain={[0, 100]} ticks={[0, 25, 50, 75, 100]} axisLine={false} tickLine={false} tick={{ fill: 'var(--text-muted)', fontSize: 10 }} /><Tooltip contentStyle={{ background: 'var(--surface-strong)', border: '1px solid var(--border)', borderRadius: 10, color: 'var(--text)' }} formatter={(value) => [`${value}/100`, 'Score']} /><Area type="monotone" dataKey="score" stroke="#9575ff" strokeWidth={2.5} fill="url(#scoreFill)" isAnimationActive={!prefersReducedMotion} animationDuration={460} animationEasing="ease-out" /></AreaChart></ResponsiveContainer></motion.div>
+}

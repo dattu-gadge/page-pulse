@@ -1,7 +1,7 @@
-const parseHTML = require("./parser");
+const parseHTML = require('./parser');
 
-describe("parseHTML", () => {
-  test("should extract SEO information", () => {
+describe('parseHTML compatibility parser', () => {
+  test('extracts SEO information from HTML', () => {
     const html = `
       <html>
         <head>
@@ -16,11 +16,9 @@ describe("parseHTML", () => {
         </body>
       </html>
     `;
-
     const result = parseHTML(html);
-
-    expect(result.pageTitle).toBe("Test Website");
-    expect(result.metaDescription).toBe("This is a test website");
+    expect(result.pageTitle).toBe('Test Website');
+    expect(result.metaDescription).toBe('This is a test website');
     expect(result.h1Count).toBe(1);
     expect(result.imagesMissingAlt).toBe(1);
     expect(result.wordCount).toBeGreaterThan(0);

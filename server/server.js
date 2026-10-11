@@ -1,49 +1,48 @@
-const parseHTML = require("./parser");
-const express = require("express");
-const cors = require("cors");
-const axios = require("axios");
+const { createApp } = require('./src/app');
+const { ScanRepository } = require('./src/repositories/scanRepository');
+const { once } = require('node:events');
 
-
-const app = express();
-
-app.use(cors());
-app.use(express.json());
-app.get("/", (req, res) => {
-  res.send("Page Pulse API is running!");
-});
-app.post("/api/analyze", async (req, res) => {
-  const { url } = req.body;
-
-  if (!url) {
-    return res.status(400).json({ error: "URL is required" });
+async function start({ repository = new ScanRepository(), app = null, port = Number(process.env.PORT) || 5000, host = '0.0.0.0', shutdownTimeoutMs = Number(process.env.SHUTDOWN_TIMEOUT_MS) || 10_000, registerSignals = true } = {}) {
+  try { await repository.init(); }
+  catch (error) { await repository.close().catch(() => {}); throw error; }
+  const server = (app || createApp({ repository })).listen(port, host);
+  try { await once(server, 'listening'); }
+  catch (error) { await repository.close().catch(() => {}); throw error; }
+  const actualPort = server.address()?.port;
+  console.log(`Page Pulse API listening on port ${actualPort} (${repository.mode} storage)`);
+  let shutdownPromise;
+  const shutdown = () => {
+    if (shutdownPromise) return shutdownPromise;
+    shutdownPromise = (async () => {
+      let timer;
+      const closed = new Promise((resolve, reject) => {
+        server.close((error) => error ? reject(error) : resolve());
+      });
+      const boundedTimeout = Number.isFinite(shutdownTimeoutMs) ? Math.max(1, Math.min(shutdownTimeoutMs, 25_000)) : 10_000;
+      timer = setTimeout(() => server.closeAllConnections?.(), boundedTimeout);
+      try { await closed; }
+      finally { clearTimeout(timer); }
+      await repository.close();
+      if (registerSignals) {
+        process.removeListener('SIGTERM', onSigterm);
+        process.removeListener('SIGINT', onSigint);
+      }
+    })();
+    return shutdownPromise;
+  };
+  const onSignal = (signal) => {
+    console.log(`Received ${signal}; draining HTTP requests before closing storage.`);
+    shutdown().catch(() => { process.exitCode = 1; });
+  };
+  const onSigterm = () => onSignal('SIGTERM');
+  const onSigint = () => onSignal('SIGINT');
+  if (registerSignals) {
+    process.on('SIGTERM', onSigterm);
+    process.on('SIGINT', onSigint);
   }
+  return { server, repository, shutdown, port: actualPort };
+}
 
-  try {
-    const start = Date.now();
+if (require.main === module) start().catch((error) => { console.error(`Startup failed (${error.code || 'STARTUP_FAILED'}). Check database and environment configuration; connection details were withheld.`); process.exitCode = 1; });
 
-    const response = await axios.get(url);
-
-    const end = Date.now();
-
-   const result = parseHTML(response.data);
-
-    
-    res.json({
-      status: response.status,
-      responseTime: end - start,
-      ...result,
-    });
-  }
-  catch (error) {
-    console.log(error);
-
-    res.status(500).json({
-      error: error.message ,
-    });
-  }
-});
-
-const PORT = process.env.PORT || 5000;
-app.listen(PORT,"0.0.0.0", () => {
-  console.log(`Server running on ${PORT}`);
-});
+module.exports = { start };

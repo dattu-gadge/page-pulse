@@ -4,18 +4,29 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-      "start": "node server.js",
-      "test": "jest"
+    "start": "node --env-file-if-exists=.env server.js",
+    "test": "jest --runInBand",
+    "dev": "node --env-file-if-exists=.env --watch server.js",
+    "migrate": "node --env-file-if-exists=.env scripts/migrate.js",
+    "import-sqlite": "node --env-file-if-exists=.env scripts/importSqlite.js",
+    "create-user": "node --env-file-if-exists=.env scripts/createUser.js"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
+  "engines": {
+    "node": ">=22.13.0 <23"
+  },
   "dependencies": {
-    "axios": "^1.18.1",
     "cheerio": "^1.2.0",
     "cors": "^2.8.6",
-    "express": "^5.2.1"
+    "express": "^5.2.1",
+    "express-rate-limit": "^8.7.1",
+    "helmet": "^8.3.0",
+    "ipaddr.js": "^2.5.0",
+    "pg": "^8.23.1",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "jest": "^30.4.2",
